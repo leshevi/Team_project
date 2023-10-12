@@ -1,7 +1,0 @@
----
-- name: Directory for NFS client
-  ansible.builtin.file:
-    path: /srv/NFS/wordpress
-    state: directory
-    owner: ansible
-    mode: '0777'
