@@ -1,0 +1,96 @@
+---
+stages:
+  - ansible_test
+  - lint_test
+  - prepare_system
+
+image: rootshellcoder/ansible:latest
+
+variables:
+  # MON_PUB: 185.247.16.17
+  # MON_PRIV: 192.168.0.4
+  # APP0_PUB: 80.68.156.78
+  # APP0_PRIV: 192.168.0.7
+  # APP1_PUB: 185.247.16.175
+  # APP1_PRIV: 192.168.0.6
+  # DB_PUB: 185.247.16.236
+  # DB_PRIV: 192.168.0.5
+
+  ANSIBLE_PYTHON_INTERPRETER: /usr/bin/python3
+  ANSIBLE_ROLES_PATH: roles
+  ANSIBLE_INVENTORY: inventories
+  ANSIBLE_REMOTE_TMP: /tmp
+  ANSIBLE_FORCE_COLOR: 'true'
+  ANSIBLE_STARATEGY: linear
+  ANSIBLE_PIPELINING: 1
+  ANSIBLE_TRANSPORT: smart
+  ANSIBLE_BECOME_EXE: sudo
+#  ANSIBLE_BECOME_METHOD: su # нужно если поднимаются права через su с вводом пароля от root
+  ANSIBLE_BECOME_USER: root
+  ANSIBLE_BECOME_ASKPASS: 'False'
+  ANSIBLE_FORCE_HANDLER: 'True'
+  ANSIBLE_STDOUT_CALLBACK: yaml
+  ANSIBLE_ASK_PASS: 'False'
+  ANSIBLE_NOCOWS: 1
+  ANSIBLE_HOST_KEY_CHECKING: 'false'
+
+.job_inj:
+  before_script:
+    - rm .gitlab-ci.yml .gitignore README.md
+    - eval $(ssh-agent -s)
+    - echo "$SSH_ROOT_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+    - |+
+      sed -i "s!MON_PUB!${MON_PUB}!" inventories/hosts.yml
+      sed -i "s!APP0_PUB!${APP0_PUB}!" inventories/hosts.yml
+      sed -i "s!APP1_PUB!${APP1_PUB}!" inventories/hosts.yml
+      sed -i "s!DB_PUB!${DB_PUB}!" inventories/hosts.yml
+    - cat inventories/hosts.yml
+
+ansible_test:
+  stage: ansible_test
+  when: manual
+  only:
+    refs:
+      - main
+  tags:
+    - sysbox-runner
+  script:
+    - ansible --version
+    - ansible-lint --version
+
+ansible_lint_test:
+  stage: lint_test
+  tags:
+    - sysbox-runner
+  only:
+    refs:
+      - main
+    changes:
+      - "inventories/**/*"
+      - "playbooks/**/*"
+      - "roles/**/*"
+      - ".gitlab-ci.yml"
+  extends: .job_inj
+  script:
+    - ansible-lint -q --offline
+
+ansible_prepare_system:
+  stage: prepare_system
+  tags:
+    - sysbox-runner
+  only:
+    refs:
+      - main
+    changes:
+      - "inventories/**/*"
+      - "playbooks/**/*"
+      - "roles/**/*"
+      - ".gitlab-ci.yml"
+  needs:
+    - ansible_lint_test
+  extends: .job_inj
+  script:
+    - ansible-playbook playbooks/prepare.yml
+    - ansible-playbook playbooks/prepare_nfs.yml
+    - ansible-playbook playbooks/wordpress_nfs.yml
+    - ansible-playbook playbooks/docker.yml
